@@ -241,7 +241,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             })
         });
     });
-    if !mac && !cfg!(target_arch = "wasm32") {
+    if app.custom_caption() {
         let rtl = crate::rtl::on();
         egui::Area::new(egui::Id::unique("backstage_window_controls"))
             .fixed_pos(pos2(

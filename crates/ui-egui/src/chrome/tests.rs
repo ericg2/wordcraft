@@ -512,8 +512,10 @@ fn the_asian_box_names_the_face_cjk_text_gets_even_for_a_font_latin_text_uses() 
 /// on the unified title bar and dispatch viewport commands.
 #[test]
 fn window_controls_drawn_and_functional_on_non_macos() {
-    let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
     assert!(!a.integrated_titlebar);
+    // The OS title bar is the default off macOS; this test exercises the undecorated path.
+    a.system_titlebar = false;
     let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
         |ui, app: &mut WordApp| {
             let ctx = ui.ctx().clone();
@@ -636,7 +638,8 @@ fn resize_zones_disabled_when_maximized() {
 /// #4311: Dragging on empty title bar space or document name sends StartDrag.
 #[test]
 fn title_bar_drag_sends_start_drag() {
-    let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    a.system_titlebar = false;
     let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
         |ui, app: &mut WordApp| {
             let ctx = ui.ctx().clone();
@@ -667,6 +670,7 @@ fn title_bar_drag_sends_start_drag() {
 #[test]
 fn document_title_double_click_maximizes_without_rename() {
     let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    a.system_titlebar = false;
     let (ctx, mut n) = (ctx(), 0);
     let title_pos = egui::pos2(720.0, 19.0);
     let button =
@@ -699,6 +703,7 @@ fn document_title_double_click_maximizes_without_rename() {
 #[test]
 fn outside_press_cancels_pending_rename() {
     let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    a.system_titlebar = false;
     let (ctx, mut n) = (ctx(), 0);
     let title_pos = egui::pos2(720.0, 19.0);
     let outside_pos = egui::pos2(200.0, 19.0);
@@ -1093,7 +1098,7 @@ fn status_bar_texts_never_overlap_controls_on_cache_miss_with_single_pass() {
 fn release_after_os_resize_preserves_new_press() {
     let ctx = ctx();
     let pass = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { pass, released: None }));
+    ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { pass, released: None, viewport: egui::ViewportId::ROOT }));
 
     // Run a pass to advance cumulative_pass_nr beyond hand-off pass
     let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
@@ -1134,7 +1139,7 @@ fn release_after_os_resize_injects_release_when_no_new_press() {
     assert!(ctx.input(|i| i.pointer.primary_down()), "primary button is down");
 
     let pass = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { pass, released: None }));
+    ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { pass, released: None, viewport: egui::ViewportId::ROOT }));
 
     let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
 
@@ -1151,7 +1156,8 @@ fn release_after_os_resize_injects_release_when_no_new_press() {
 fn window_controls_in_rtl_places_close_at_outer_edge() {
     let arabic = crate::i18n::fixture_lang("ar", "");
     crate::i18n::set_current(arabic);
-    let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    a.system_titlebar = false;
     let mut h = egui_kittest::Harness::builder()
         .with_size(egui::vec2(1440.0, 900.0))
         .with_context_setup(|ctx| ctx.set_fonts(crate::theme::font_definitions(false, false)))
@@ -1178,12 +1184,12 @@ fn window_controls_in_rtl_places_close_at_outer_edge() {
     assert!(max.rect.min.x < min.rect.min.x, "Maximize is to the left of Minimize in RTL");
 }
 
-/// #4311: At the supported minimum window width (760 pt), secondary controls compact so the
-/// centered document title remains visible and clickable.
+/// The centred document title stays visible and clickable in a narrow window. With the system
+/// title bar the OS owns the frame, so this checks the app header on its own (#4311 follow-up).
 #[test]
-fn title_bar_at_minimum_width_shows_document_title() {
+fn title_bar_shows_document_title_at_a_narrow_width() {
     let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
-    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(760.0, 600.0)).build_ui_state(
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 600.0)).build_ui_state(
         |ui, app: &mut WordApp| {
             let ctx = ui.ctx().clone();
             app.logic(&ctx);
@@ -1198,7 +1204,7 @@ fn title_bar_at_minimum_width_shows_document_title() {
     h.run_steps(4);
     let has_title =
         h.query_all_by_role(egui::accesskit::Role::Button).any(|n| n.accesskit_node().label().as_deref().is_some_and(|l| l.contains("Document1")));
-    assert!(has_title, "Document title is rendered at 760 pt width");
+    assert!(has_title, "Document title is rendered at 900 pt width");
 }
 
 /// #4311: If a widget was being dragged when an OS resize hand-off occurred, and the next input
@@ -1222,7 +1228,7 @@ fn release_after_os_resize_clears_stale_drag_and_preserves_new_interaction() {
 
     // Hand-off occurs at this pass
     let pass = ctx.cumulative_pass_nr();
-    ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { pass, released: None }));
+    ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { pass, released: None, viewport: egui::ViewportId::ROOT }));
 
     // Run a pass to advance cumulative_pass_nr
     let _ = ctx.run_ui(egui::RawInput::default(), |ui| {

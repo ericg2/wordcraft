@@ -1637,6 +1637,7 @@ fn backstage_window_controls_mirrored_in_rtl() {
     let arabic = crate::i18n::fixture_lang("ar", "");
     crate::i18n::set_current(arabic);
     let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+    a.system_titlebar = false;
     a.ui.backstage = true;
     a.ui.backstage_page = "home".into();
     let mut h = egui_kittest::Harness::builder()

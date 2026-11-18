@@ -25,7 +25,7 @@ impl WordApp {
             control_click_as_secondary(&mut raw.events, &mut self.control_click);
         }
         self.apply_raw_input_scroll(raw);
-        if !self.integrated_titlebar && !cfg!(target_arch = "wasm32") {
+        if self.custom_caption() {
             crate::chrome::release_after_os_resize(ctx, raw);
         }
         if self.synthetic_pending || self.synthetic.is_empty() || self.fonts_frames < 2 || !self.control_input_is_roots(ctx) {

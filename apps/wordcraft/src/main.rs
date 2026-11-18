@@ -653,8 +653,7 @@ fn main() -> eframe::Result {
             .with_drag_and_drop(true)
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
-            .with_title_shown(false)
-            .with_decorations(cfg!(target_os = "macos")),
+            .with_title_shown(false),
         ..Default::default()
     };
     if let Some(icon) = app_icon() {

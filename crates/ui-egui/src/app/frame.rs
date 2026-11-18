@@ -152,7 +152,7 @@ impl WordApp {
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
-        if !self.integrated_titlebar && !cfg!(target_arch = "wasm32") {
+        if self.custom_caption() {
             chrome::resize_zones(ui);
         }
     }

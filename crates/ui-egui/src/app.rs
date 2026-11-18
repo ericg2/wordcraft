@@ -26,6 +26,13 @@ pub(crate) use frame::STATUS_MS;
 pub(crate) use input::control_click_as_secondary;
 
 impl WordApp {
+    /// Whether we draw the caption buttons and resize zones ourselves instead of letting the OS
+    /// frame do it. Only for an undecorated window: with a native title bar the compositor owns
+    /// dragging and resizing, and our own handlers would fight it (#4311 follow-up).
+    pub(crate) fn custom_caption(&self) -> bool {
+        !self.system_titlebar && !self.integrated_titlebar && !cfg!(target_arch = "wasm32")
+    }
+
     /// Creates the app: adopts the system locale, then initializes the document session, UI state,
     /// services, printing, canvas, dialogs, previews, control and screenshot state, font and theme
     /// tracking.
@@ -108,6 +115,7 @@ impl WordApp {
             print_feedback_seen: None,
             print_gen: 0,
             integrated_titlebar: false,
+            system_titlebar: cfg!(not(target_os = "macos")),
             mac_titlebar: chrome::MacTitleBar::default(),
             updates_rt: updates_ui::Runtime::default(),
             font_notice_seen: Vec::new(),

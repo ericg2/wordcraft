@@ -2462,6 +2462,7 @@ fn the_title_bar_moves_the_window_in_every_modal_state() {
         for mac in [true, false] {
             let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
             a.integrated_titlebar = mac;
+            a.system_titlebar = false;
             let mut h = app_harness(a);
             h.run_steps(6);
             open_modal_state(h.state_mut(), state);

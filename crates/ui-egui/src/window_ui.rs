@@ -172,6 +172,7 @@ impl WordApp {
             print_gen: _,
             font_generation: _,
             integrated_titlebar: _,
+            system_titlebar: _,
             mac_titlebar: _,
             control_rx: _,
             updates_rt: _,

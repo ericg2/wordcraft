@@ -408,12 +408,14 @@ fn resize_handed_off_id() -> Id {
     Id::unique("titlebar-resize-handed-off")
 }
 
-/// An OS resize started at `pass`; `released` is the pass whose input ended the press
-/// ([`release_after_os_resize`]).
+/// An OS resize started at `pass` in `viewport`; `released` is the pass whose input ended the press
+/// ([`release_after_os_resize`]). Scoped to the viewport that started it: every native window
+/// shares this context, and another window's input hook must not consume this hand-off.
 #[derive(Clone, Copy, Debug)]
 struct HandOff {
     pass: u64,
     released: Option<u64>,
+    viewport: egui::ViewportId,
 }
 
 /// The compositor takes the button release of an OS resize (KDE Wayland), so egui kept the edge
@@ -427,6 +429,11 @@ struct HandOff {
 /// Call from `raw_input_hook`.
 pub fn release_after_os_resize(ctx: &egui::Context, raw: &mut egui::RawInput) {
     let Some(h) = ctx.data(|d| d.get_temp::<HandOff>(resize_handed_off_id())) else { return };
+    // Only the window that started the resize recovers it. A secondary window's input hook
+    // arrives with a different viewport id and must not mark the hand-off released.
+    if h.viewport != raw.viewport_id {
+        return;
+    }
     if h.released.is_some() || h.pass >= ctx.cumulative_pass_nr() {
         return;
     }
@@ -435,7 +442,12 @@ pub fn release_after_os_resize(ctx: &egui::Context, raw: &mut egui::RawInput) {
     if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()).filter(|_| !os_released && !os_pressed && ctx.input(|i| i.pointer.primary_down())) {
         raw.events.push(egui::Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, modifiers: ctx.input(|i| i.modifiers) });
     }
-    ctx.stop_dragging();
+    // Where the compositor consumed the release, egui still has the old widget dragging; clear
+    // it so the next interaction isn't blocked. When the OS delivered its own release, egui has
+    // already ended the drag and stopping again would cancel unrelated interactions.
+    if !os_released {
+        ctx.stop_dragging();
+    }
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { released: Some(pass), ..h }));
 }
@@ -446,7 +458,10 @@ pub fn release_after_os_resize(ctx: &egui::Context, raw: &mut egui::RawInput) {
 /// pointer motion after the hand-off, show the default cursor for one frame so the resize cursor is
 /// sent again on the next.
 fn reshow_cursor_after_os_resize(ctx: &egui::Context) {
-    let Some(HandOff { released: Some(pass), .. }) = ctx.data(|d| d.get_temp::<HandOff>(resize_handed_off_id())) else { return };
+    let Some(HandOff { released: Some(pass), viewport, .. }) = ctx.data(|d| d.get_temp::<HandOff>(resize_handed_off_id())) else { return };
+    if viewport != ctx.viewport_id() {
+        return;
+    }
     if pass < ctx.cumulative_pass_nr() && ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::PointerMoved(_)))) {
         ctx.data_mut(|d| d.remove::<HandOff>(resize_handed_off_id()));
         ctx.set_cursor_icon(CursorIcon::Default);
@@ -458,7 +473,15 @@ fn reshow_cursor_after_os_resize(ctx: &egui::Context) {
 /// an OS resize in that direction. None while the window is maximized or full screen.
 pub fn resize_zones(ui: &mut Ui) {
     let ctx = ui.ctx().clone();
+    let handoff = ctx.data(|d| d.get_temp::<HandOff>(resize_handed_off_id()));
     if ctx.input(|i| i.viewport().maximized.unwrap_or(false) || i.viewport().fullscreen.unwrap_or(false)) {
+        reshow_cursor_after_os_resize(&ctx);
+        return;
+    }
+    // The compositor owns the pointer during an OS resize. Registering drag zones and asking
+    // for resize cursors then fights the compositor's own resize handling and makes dragging
+    // an edge stutter. Recovery still runs on each of these frames.
+    if handoff.is_some_and(|h| h.viewport == ctx.viewport_id() && h.released.is_none()) {
         reshow_cursor_after_os_resize(&ctx);
         return;
     }
@@ -466,11 +489,15 @@ pub fn resize_zones(ui: &mut Ui) {
     let layer = LayerId::new(Order::Foreground, Id::unique("titlebar-resize"));
     let zui = ui.new_child(egui::UiBuilder::new().layer_id(layer).max_rect(w));
     for (i, (r, dir, cursor)) in zones(w).into_iter().enumerate() {
-        let resp = zui.interact(r, Id::unique(("titlebar-resize", i)), Sense::drag()).on_hover_cursor(cursor);
+        let resp = zui.interact(r, Id::unique(("titlebar-resize", i)), Sense::drag());
+        // While a hand-off is pending recovery, do not request a cursor: the compositor sets
+        // its own during the resize and a competing request flickers the pointer.
+        let resp = if handoff.is_none() { resp.on_hover_cursor(cursor) } else { resp };
         if resp.drag_started_by(PointerButton::Primary) {
             ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));
             let pass = ctx.cumulative_pass_nr();
-            ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { pass, released: None }));
+            let viewport = ctx.viewport_id();
+            ctx.data_mut(|d| d.insert_temp(resize_handed_off_id(), HandOff { pass, released: None, viewport }));
         }
     }
     reshow_cursor_after_os_resize(&ctx);
@@ -507,7 +534,10 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
     // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
     // shrink to keep a margin above and below them.
     let mac = app.integrated_titlebar;
-    let custom_caption = !mac && !cfg!(target_arch = "wasm32");
+    let custom_caption = app.custom_caption();
+    // With a native title bar the OS moves and double-clicks the window; only the undecorated
+    // (or macOS-integrated) window needs our own drag handling.
+    let app_drags_window = custom_caption || mac;
     let bar = app.mac_titlebar;
     let left = if mac { bar.content_left as i8 } else { 8 };
     let control_h = if mac { 22.0 } else { 26.0 };
@@ -529,18 +559,19 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 full
             };
             let drag = ui.interact(drag_rect, ui.scope_id().with("title_drag"), Sense::click_and_drag());
-            if drag.drag_started() {
+            if app_drags_window && drag.drag_started() {
                 let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                 if max {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(false));
                 }
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
             }
-            // Elsewhere the system's own title bar above this one moves the window.
+            // Only the macOS integrated title bar needs the drag rect noted for modal dialogs:
+            // elsewhere the window is moved by the OS frame or by our own caption handling.
             if mac {
                 note_title_drag(ui.ctx(), full);
             }
-            if drag.double_clicked() {
+            if app_drags_window && drag.double_clicked() {
                 let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
             }
@@ -679,7 +710,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 let response = ui.interact(rect, ui.scope_id().with("document_name"), Sense::click_and_drag()).on_hover_text(tl!("Rename Document"));
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
                 let pending_id = ui.scope_id().with("pending_rename_at");
-                if response.drag_started() {
+                if app_drags_window && response.drag_started() {
                     ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
                     let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                     if max {
@@ -687,26 +718,36 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     }
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
-                if response.double_clicked() {
+                let double_clicked = response.double_clicked();
+                if app_drags_window && double_clicked {
                     ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
                     let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-                } else if response.clicked() {
-                    let now = ui.input(|i| i.time);
-                    ui.ctx().data_mut(|d| d.insert_temp(pending_id, now));
-                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(350));
-                }
-                let outside_press = ui.input(|i| i.pointer.any_pressed() && i.pointer.latest_pos().is_some_and(|p| !rect.contains(p)));
-                if outside_press {
-                    ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
-                }
-                if let Some(t_click) = ui.ctx().data(|d| d.get_temp::<f64>(pending_id)) {
-                    let now = ui.input(|i| i.time);
-                    if now - t_click >= 0.35 {
-                        ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
-                        let _ = app.run("file.rename", json!({}));
+                } else if response.clicked() || (!app_drags_window && double_clicked) {
+                    if app_drags_window {
+                        // A second click may turn this into a maximize: wait out egui's double-click
+                        // interval before renaming, and cancel when that happens.
+                        let now = ui.input(|i| i.time);
+                        ui.ctx().data_mut(|d| d.insert_temp(pending_id, now));
+                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(350));
                     } else {
-                        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(0.35 - (now - t_click)));
+                        // With the OS title bar there is no double-click maximize to disambiguate.
+                        let _ = app.run("file.rename", json!({}));
+                    }
+                }
+                if app_drags_window {
+                    let outside_press = ui.input(|i| i.pointer.any_pressed() && i.pointer.latest_pos().is_some_and(|p| !rect.contains(p)));
+                    if outside_press {
+                        ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
+                    }
+                    if let Some(t_click) = ui.ctx().data(|d| d.get_temp::<f64>(pending_id)) {
+                        let now = ui.input(|i| i.time);
+                        if now - t_click >= 0.35 {
+                            ui.ctx().data_mut(|d| d.remove::<f64>(pending_id));
+                            let _ = app.run("file.rename", json!({}));
+                        } else {
+                            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(0.35 - (now - t_click)));
+                        }
                     }
                 }
 
