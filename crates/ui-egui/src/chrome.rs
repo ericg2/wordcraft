@@ -64,7 +64,7 @@ pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
 
 /// The Quick Access Toolbar (#379): the user's commands (Save, Undo, Redo until customized), each
 /// with a right-click menu, then the menu button that customizes it (#376).
-fn quick_access(ui: &mut Ui, app: &mut WordApp) {
+pub(crate) fn quick_access(ui: &mut Ui, app: &mut WordApp) {
     let ids: Vec<String> = app.session.ribbon.qat().into_iter().map(str::to_string).collect();
     for (index, id) in ids.iter().enumerate() {
         let id = id.as_str();
@@ -527,6 +527,61 @@ pub(crate) fn title_drag_rect(ctx: &egui::Context) -> Option<Rect> {
     ctx.data(|d| d.get_temp::<(Rect, u64)>(key)).filter(|(_, p)| *p == pass).map(|(r, _)| r)
 }
 
+/// The AutoSave label and switch, moved out of the title bar into File when the system draws the
+/// window frame. Disabled with a reason when AutoSave can't cover the document (#196, #176).
+pub(crate) fn autosave_toggle(app: &mut WordApp, ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
+    let rtl = crate::rtl::on();
+    let block = app.autosave_block();
+    let on = app.autosaves();
+    let color = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
+    // The text is part of the switch (#3370), and chrome text is not document text to select.
+    let text = ui.add(
+        egui::Label::new(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(color))
+            .selectable(false)
+            .sense(Sense::click()),
+    );
+    let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
+    let (fill, stroke, knob_fill) = match (&block, on) {
+        (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
+        (None, true) => (t.accent, t.accent, t.on_accent),
+        (None, false) => (t.input, t.border_strong, t.text_dim),
+    };
+    ui.painter().rect(r, 8.0, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+    let knob = autosave_knob_x(rtl, on, r);
+    ui.painter().circle_filled(pos2(knob, r.center().y), 5.0, knob_fill);
+    let tip = block
+        .as_ref()
+        .map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
+    let text = text.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let resp = resp.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
+    if text.clicked() || resp.clicked() {
+        match block {
+            None => {
+                let _ = app.run("file.autosave", json!({}));
+            }
+            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).
+            Some(b) if b.save_as_helps() => {
+                let _ = app.save_as(crate::file_dialogs::AfterSave::AutoSave);
+            }
+            Some(b) => app.status(b.reason()),
+        }
+    }
+}
+
+/// The account button (the user's initials), moved out of the title bar into the tab strip.
+pub(crate) fn account_button(app: &mut WordApp, ui: &mut Ui, size: f32) {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
+    ui.painter().circle_filled(r.center(), size / 2.0 - 1.0, t.accent);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Account")));
+    let initials: String = app.session.user_initials().chars().take(2).collect();
+    ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
+    if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
+        let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
+    }
+}
+
 /// Draws the title bar with window dragging, AutoSave, quick access, account, community and search
 /// controls, and the centred clickable document title.
 pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
@@ -582,44 +637,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
             crate::rtl::root(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
-                    // AutoSave switch: greyed out, with the reason as its tooltip, when AutoSave can't
-                    // cover the document (#196, #176); clicking it then offers Save As where that helps.
-                    let block = app.autosave_block();
-                    let on = app.autosaves();
-                    let color = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
-                    // The text is part of the switch (#3370): clicking it toggles AutoSave, and chrome
-                    // text is not document text to select (double-clicking it copied "AutoSave").
-                    let text = ui.add(
-                        egui::Label::new(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(color))
-                            .selectable(false)
-                            .sense(Sense::click()),
-                    );
-                    let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
-                    let (fill, stroke, knob_fill) = match (&block, on) {
-                        (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
-                        (None, true) => (t.accent, t.accent, t.on_accent),
-                        (None, false) => (t.input, t.border_strong, t.text_dim),
-                    };
-                    ui.painter().rect(r, 8.0, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
-                    let knob = autosave_knob_x(rtl, on, r);
-                    ui.painter().circle_filled(pos2(knob, r.center().y), 5.0, knob_fill);
-                    let tip = block
-                        .as_ref()
-                        .map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
-                    let text = text.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
-                    let resp = resp.on_hover_text(tip.as_str()).on_hover_cursor(egui::CursorIcon::PointingHand);
-                    if text.clicked() || resp.clicked() {
-                        match block {
-                            None => {
-                                let _ = app.run("file.autosave", json!({}));
-                            }
-                            // AutoSave comes on once Save As has saved (maybe on a later frame, #94).
-                            Some(b) if b.save_as_helps() => {
-                                let _ = app.save_as(crate::file_dialogs::AfterSave::AutoSave);
-                            }
-                            Some(b) => app.status(b.reason()),
-                        }
-                    }
+                    autosave_toggle(app, ui);
                     ui.add_space(8.0);
                     // Hidden (#1945): neither the buttons nor the … menu; the title centres as before.
                     if app.ui.quick_access_toolbar {
@@ -634,15 +652,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         // three controls and a gap from the Quick Access Toolbar.
                         let room = ui.available_width() - control_h - 8.0 - 3.0 * ui.spacing().item_spacing.x - 8.0;
                         let fit = TitleBarFit::new(room, app.ui.show_discord, control_h);
-                        // Account / community.
-                        let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
-                        ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Account")));
-                        let initials: String = app.session.user_initials().chars().take(2).collect();
-                        ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
-                        if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
-                            let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
-                        }
+                        account_button(app, ui, control_h);
                         ui.add_space(8.0);
                         if app.ui.show_discord {
                             let (r, resp) = ui.allocate_exact_size(vec2(if fit.discord_label { 84.0 } else { 22.0 }, 22.0), Sense::click());
@@ -923,7 +933,7 @@ fn typing_search(app: &mut WordApp, ui: &mut Ui, control_h: f32, s: &mut TitleSe
 /// Search ("Tell me"): a box `width` wide that opens command search, its text shortened to fit
 /// and left out of a square box. In the title bar, and in the Commands bar of Full Screen (#1678).
 /// Clicked (or Alt+Q), it takes the typing in place (#5398).
-fn search_box(app: &mut WordApp, ui: &mut Ui, control_h: f32, width: f32) {
+pub(crate) fn search_box(app: &mut WordApp, ui: &mut Ui, control_h: f32, width: f32) {
     let frame = ui.ctx().cumulative_frame_nr();
     ui.ctx().data_mut(|d| d.insert_temp(app.window_id("title_search_shown"), frame));
     let id = app.window_id("title_search");

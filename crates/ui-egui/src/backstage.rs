@@ -451,8 +451,17 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
             "Good evening"
         },
     );
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
+    // AutoSave used to live in the title bar; with the system frame it belongs here, in File.
+    crate::rtl::root(ui, |ui| {
+        ui.horizontal(|ui| {
+            crate::chrome::autosave_toggle(app, ui);
+        });
+    });
+    ui.add_space(12.0);
+    // Wrap the tiles: a narrow window (or one just moved to a smaller monitor) must not cut the
+    // row off at the window's edge. `New` has always wrapped for the same reason.
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(18.0, 18.0);
         for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
             template_tile(ui, app, label, template);
         }

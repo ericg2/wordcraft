@@ -161,8 +161,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             crate::rtl::root(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
-                    // Share, Editing mode and Comments keep their room; the tabs get what is left of it
-                    // (#897, #2026), and the buttons give up their labels before a tab is drawn over them.
+                    // The Quick Access Toolbar moved here when the in-app title bar was removed.
+                    if app.ui.quick_access_toolbar {
+                        crate::chrome::quick_access(ui, app);
+                        ui.add_space(10.0);
+                    }
+                    // Share, Editing mode, Comments, Search and the account keep their room; the tabs
+                    // get what is left (#897, #2026). Search shrinks to its icon before labels go.
+                    let search_w = if ui.available_width() > 1180.0 {
+                        220.0
+                    } else if ui.available_width() > 900.0 {
+                        150.0
+                    } else {
+                        30.0
+                    };
                     let share = tl!("Share");
                     let editing_label = if app.session.doc.settings.track_changes { tl!("Reviewing") } else { tl!("Editing") };
                     let comments = tl!("Comments");
@@ -174,8 +186,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         let share_button = if level < 2 { share_full } else { 30.0 };
                         let editing = crate::widgets::icon_text_button_width(ui, editing_label, regular(12.0), true, labels);
                         let comment = crate::widgets::icon_text_button_width(ui, comments, regular(12.0), false, labels);
-                        // The gaps (6 + 4 + 8) and the strip's margin.
-                        spaced(share_button) + spaced(editing) + spaced(comment) + 18.0 + 12.0
+                        // Gaps, the strip's margin, and the account and search boxes.
+                        spaced(share_button) + spaced(editing) + spaced(comment) + spaced(search_w) + spaced(24.0) + 18.0 + 12.0
                     };
                     let button_levels = [button_widths(0), button_widths(1), button_widths(2)];
                     let labels: Vec<&str> = tabs.iter().map(|(tab, custom)| if *custom { tab.as_str() } else { tl!(tab) }).collect();
@@ -191,6 +203,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         .collect();
                     let plan = plan_strip(&specs, button_levels, ui.available_width(), MORE_TABS_W + 2.0);
                     ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
+                        // The account button sits to the right of Share in the far-side cluster.
+                        crate::chrome::account_button(app, ui, 22.0);
+                        ui.add_space(6.0);
                         // No document open (#1129): nothing to share, edit or comment on — but only
                         // these buttons. Disabling the whole line took the tab strip with it: the
                         // tabs took clicks that did nothing, so the empty window had no way back to
@@ -249,6 +264,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 let _ = app.run("view.commentsPane", json!({}));
                             }
                         });
+                        ui.add_space(6.0);
+                        // Command Search sits immediately to the left of Comments.
+                        crate::chrome::search_box(app, ui, 22.0, search_w);
                         ui.add_space(8.0);
                         // The tabs fill the room left of the cluster, from the side reading starts from.
                         // (By language: this row sits in the far-side cluster's layout, which fills from the other end.)

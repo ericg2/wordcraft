@@ -561,9 +561,9 @@ fn app() -> WordApp {
     WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default())
 }
 
-/// All title-bar inputs have accessible names. Clicking the title opens Rename Document, the
-/// Rename button saves a new name, Escape cancels, a long name stays clickable, and rename
-/// leaves the document clean.
+/// The controls that used to be in the title bar keep working: command search and the account
+/// button have accessible names and sit in the ribbon, and File's Rename flow works. With a system
+/// title bar there is no clickable document name in the app, so rename is invoked by command.
 #[test]
 fn title_and_account_buttons_work() {
     use egui_kittest::kittest::Queryable;
@@ -578,7 +578,7 @@ fn title_and_account_buttons_work() {
     h.run_steps(6);
     assert!(h.unnamed_widgets().is_empty(), "chrome inputs have accessible names: {:?}", h.unnamed_widgets());
     h.check_accessibility();
-    h.get_by_label("Document1 — Not saved").click();
+    h.state_mut().run("file.rename", json!({})).unwrap();
     h.run_steps(2);
     assert_eq!(h.state().dialog.as_ref().map(|d| d.name()), Some("renameDocument"));
     assert!(h.unnamed_widgets().is_empty(), "the document-name field is labelled: {:?}", h.unnamed_widgets());
@@ -587,7 +587,7 @@ fn title_and_account_buttons_work() {
     assert!(h.state().dialog.is_none());
     assert!(h.state().session.file_name.is_none());
     assert!(!h.state().session.dirty);
-    h.get_by_label("Document1 — Not saved").click();
+    h.state_mut().run("file.rename", json!({})).unwrap();
     h.run_steps(2);
     h.event(egui::Event::Key {
         key: egui::Key::A,
@@ -605,11 +605,11 @@ fn title_and_account_buttons_work() {
     assert_eq!(h.state().default_save_name(), "Project notes.docx");
     assert!(h.state().session.doc.core.title.is_empty());
     assert!(!h.state().session.dirty);
-    // A long name remains clickable, and Escape leaves it unchanged.
+    // Escape still leaves a long name unchanged.
     let long_name = "Notes ".repeat(25);
     h.state_mut().run("file.rename", json!({"name": long_name})).unwrap();
     h.run_steps(2);
-    h.get_by_label(&format!("{} — Not saved", long_name.trim())).click();
+    h.state_mut().run("file.rename", json!({})).unwrap();
     h.run_steps(2);
     assert!(h.state().dialog.is_some());
     h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });

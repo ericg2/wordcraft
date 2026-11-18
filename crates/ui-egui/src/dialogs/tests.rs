@@ -2468,7 +2468,8 @@ fn the_title_bar_moves_the_window_in_every_modal_state() {
             open_modal_state(h.state_mut(), state);
             h.run_steps(4);
             assert_eq!(h.state().modal_open(), modal, "{state}");
-            assert_eq!(window_drags(&mut h, egui::pos2(300.0, 12.0)), usize::from(mac || !modal), "{state}, macOS: {mac}");
+            // WordCraft only draws the title bar it can drag on macOS; elsewhere the OS frame does.
+            assert_eq!(window_drags(&mut h, egui::pos2(300.0, 12.0)), usize::from(mac), "{state}, macOS: {mac}");
             assert_eq!(h.state().modal_open(), modal, "{state} stays open");
         }
     }
