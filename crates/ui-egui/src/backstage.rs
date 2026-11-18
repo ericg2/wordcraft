@@ -159,10 +159,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         resp.scroll_to_me(None);
                     }
                     let active = app.ui.backstage_page == id;
+                    let hover = ui.ctx().animate_bool_responsive(resp.id.with("hover"), on && resp.hovered());
+                    let press = ui.ctx().animate_bool_with_time(resp.id.with("press"), on && resp.is_pointer_button_down_on(), ui.style().animation_time.min(0.06));
                     if active {
                         ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(46));
-                    } else if on && resp.hovered() {
-                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
+                    } else if hover > 0.0 || press > 0.0 {
+                        let alpha = (26.0 * hover + 60.0 * press).clamp(0.0, 255.0) as u8;
+                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(alpha));
                     }
                     let ink = if on { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(110) };
                     icons::paint(
@@ -200,8 +203,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         if resp.gained_focus() {
                             resp.scroll_to_me(None);
                         }
-                        if resp.hovered() {
-                            ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
+                        let hover = ui.ctx().animate_bool_responsive(resp.id.with("hover"), resp.hovered());
+                        let press = ui.ctx().animate_bool_with_time(resp.id.with("press"), resp.is_pointer_button_down_on(), ui.style().animation_time.min(0.06));
+                        if hover > 0.0 || press > 0.0 {
+                            let alpha = (26.0 * hover + 60.0 * press).clamp(0.0, 255.0) as u8;
+                            ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(alpha));
                         }
                         let at = pos2(crate::rtl::lead_x(rtl, r, 22.0), r.center().y);
                         ui.painter().text(at, crate::rtl::lead_center(rtl), tl!(label), regular(13.0), egui::Color32::WHITE);
@@ -378,13 +384,10 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
         let flows = crate::rtl::flows(ui);
         let r_min_x = if flows { tile.max.x - 150.0 } else { tile.min.x };
         let r = Rect::from_min_size(pos2(r_min_x, tile.min.y), vec2(150.0, 194.0));
-        ui.painter().rect(
-            r,
-            2.0,
-            egui::Color32::WHITE,
-            Stroke::new(if resp.hovered() { 2.0 } else { 1.0 }, if resp.hovered() { t.accent } else { t.border_strong }),
-            egui::StrokeKind::Inside,
-        );
+        let hover = ui.ctx().animate_bool_responsive(resp.id.with("hover"), resp.hovered());
+        let press = ui.ctx().animate_bool_with_time(resp.id.with("press"), resp.is_pointer_button_down_on(), ui.style().animation_time.min(0.06));
+        let edge = t.border_strong.lerp_to_gamma(t.accent, hover.max(press));
+        ui.painter().rect(r, 2.0, egui::Color32::WHITE, Stroke::new(1.0 + hover.max(press), edge), egui::StrokeKind::Inside);
         let ppp = ui.ctx().pixels_per_point();
         let key = format!("tpl:{template}:{ppp}");
         let region = app.session.region();
@@ -458,14 +461,44 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
         });
     });
     ui.add_space(12.0);
-    // Wrap the tiles: a narrow window (or one just moved to a smaller monitor) must not cut the
-    // row off at the window's edge. `New` has always wrapped for the same reason.
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(18.0, 18.0);
-        for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
-            template_tile(ui, app, label, template);
+    // Lay the tiles out in explicit rows. `horizontal_wrapped` is not enough here: each tile
+    // allocates its own width (a long caption makes it wider), so the last one can be drawn past
+    // the window edge instead of wrapping. Measuring first also reflows on every size change.
+    let gap = 18.0;
+    let templates: Vec<_> = TEMPLATES.into_iter().take(HOME_TEMPLATES).collect();
+    let widths: Vec<f32> = templates
+        .iter()
+        .map(|(label, _)| {
+            let caption = crate::i18n::tc("template", label);
+            ui.painter().layout_no_wrap(caption.to_string(), regular(12.5), ui.visuals().text_color()).size().x.max(150.0)
+        })
+        .collect();
+    let inner = ui.available_width();
+    let mut rows: Vec<Vec<usize>> = Vec::new();
+    let mut row: Vec<usize> = Vec::new();
+    let mut used = 0.0;
+    for (i, w) in widths.iter().enumerate() {
+        let need = if row.is_empty() { *w } else { used + gap + *w };
+        if need > inner && !row.is_empty() {
+            rows.push(std::mem::take(&mut row));
+            used = 0.0;
         }
-    });
+        used = if row.is_empty() { *w } else { used + gap + *w };
+        row.push(i);
+    }
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    for row in rows {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = vec2(gap, gap);
+            for i in row {
+                let (label, template) = templates[i];
+                template_tile(ui, app, label, template);
+            }
+        });
+        ui.add_space(gap);
+    }
     ui.add_space(8.0);
     let more = ui.add(egui::Label::new(egui::RichText::new(tl!("More templates →")).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
     if more.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {

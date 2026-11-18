@@ -16,7 +16,7 @@ pub use buttons::{
     BIG_ICON_Y, BIG_LABEL_Y, ButtonAction, CONTENT_H, DROPDOWN, LABEL_H, LABEL_LINE_H, LABEL_PITCH, MenuButtonOptions, big, big_toggle, enabled,
     label_line, menu_button, menu_enabled, small, split, split_labeled,
 };
-pub(crate) use buttons::{bg, run_from_ribbon};
+pub(crate) use buttons::{animated_bg, bg, run_from_ribbon};
 pub use combo::{
     ADD_FONT, COMBO_PREVIEW_ROW_H, DrawnState, FontComboOptions, LOAD_SYSTEM_FONTS, color_grid, combo, combo_hint, combo_list, drawn_state,
     font_combo, font_combo_with_recent, font_combo_with_recent_hint, font_matches,

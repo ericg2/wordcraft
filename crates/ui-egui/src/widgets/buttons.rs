@@ -42,18 +42,30 @@ pub(crate) fn bg(ui: &Ui, r: Rect, resp: &Response, checked: bool, t: &Tokens) {
 /// pass `false` so their visual state cannot imply that they are interactive.
 pub(crate) fn bg_if(ui: &Ui, r: Rect, resp: &Response, checked: bool, t: &Tokens, on: bool) {
     let hover = ui.ctx().animate_bool_responsive(resp.id.with("hover"), resp.hovered() && on);
-    let fill = if resp.is_pointer_button_down_on() && on {
-        t.pressed
-    } else if checked {
+    let press = ui.ctx().animate_bool_with_time(resp.id.with("press"), resp.is_pointer_button_down_on() && on, ui.style().animation_time.min(0.06));
+    let fill = if checked {
         t.checked
-    } else if hover > 0.0 {
-        Color32::TRANSPARENT.lerp_to_gamma(t.hover, hover)
     } else {
-        return;
+        Color32::TRANSPARENT.lerp_to_gamma(t.hover, hover).lerp_to_gamma(t.pressed, press)
     };
-    ui.painter().rect_filled(r, CornerRadius::same(4), fill);
+    if fill != Color32::TRANSPARENT {
+        ui.painter().rect_filled(r, CornerRadius::same(4), fill);
+    }
     if checked {
         ui.painter().rect_stroke(r, CornerRadius::same(4), Stroke::new(1.0, t.accent.linear_multiply(0.5)), egui::StrokeKind::Inside);
+    }
+}
+
+/// Animated hover and press fill for custom buttons that don't go through [`bg_if`] (the tab strip,
+/// the Quick Access Toolbar, the File menu, tiles). Fades in and out with the style's animation
+/// time, so turning animations off in File › Options removes the transition everywhere.
+pub(crate) fn animated_bg(ui: &Ui, r: Rect, resp: &Response) {
+    let t = Tokens::get(ui.ctx());
+    let hover = ui.ctx().animate_bool_responsive(resp.id.with("hover"), resp.hovered());
+    let press = ui.ctx().animate_bool_with_time(resp.id.with("press"), resp.is_pointer_button_down_on(), ui.style().animation_time.min(0.06));
+    let fill = Color32::TRANSPARENT.lerp_to_gamma(t.hover, hover).lerp_to_gamma(t.pressed, press);
+    if fill != Color32::TRANSPARENT {
+        ui.painter().rect_filled(r, CornerRadius::same(4), fill);
     }
 }
 

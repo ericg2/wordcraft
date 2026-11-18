@@ -162,13 +162,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
                     // The Quick Access Toolbar moved here when the in-app title bar was removed.
-                    if app.ui.quick_access_toolbar {
+                    // On macOS that bar is still drawn, so it keeps its own controls.
+                    let chrome_in_ribbon = !app.integrated_titlebar;
+                    if chrome_in_ribbon && app.ui.quick_access_toolbar {
                         crate::chrome::quick_access(ui, app);
                         ui.add_space(10.0);
                     }
                     // Share, Editing mode, Comments, Search and the account keep their room; the tabs
                     // get what is left (#897, #2026). Search shrinks to its icon before labels go.
-                    let search_w = if ui.available_width() > 1180.0 {
+                    let search_w = if !chrome_in_ribbon {
+                        0.0
+                    } else if ui.available_width() > 1180.0 {
                         220.0
                     } else if ui.available_width() > 900.0 {
                         150.0
@@ -204,8 +208,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     let plan = plan_strip(&specs, button_levels, ui.available_width(), MORE_TABS_W + 2.0);
                     ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
                         // The account button sits to the right of Share in the far-side cluster.
-                        crate::chrome::account_button(app, ui, 22.0);
-                        ui.add_space(6.0);
+                        if chrome_in_ribbon {
+                            crate::chrome::account_button(app, ui, 22.0);
+                            ui.add_space(6.0);
+                        }
                         // No document open (#1129): nothing to share, edit or comment on — but only
                         // these buttons. Disabling the whole line took the tab strip with it: the
                         // tabs took clicks that did nothing, so the empty window had no way back to
@@ -214,7 +220,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                             let (share_size, share_text) =
                                 if plan.buttons < 2 { (((share_w + 36.0).max(74.0), 24.0), true) } else { ((30.0, 24.0), false) };
                             let (r, resp) = ui.allocate_exact_size(vec2(share_size.0, share_size.1), Sense::click());
-                            ui.painter().rect_filled(r, 4.0, if resp.hovered() { t.accent_text } else { t.accent });
+                            let hover = ui.ctx().animate_bool_responsive(resp.id.with("hover"), resp.hovered());
+                            let press = ui.ctx().animate_bool_with_time(resp.id.with("press"), resp.is_pointer_button_down_on(), ui.style().animation_time.min(0.06));
+                            let fill = t.accent.lerp_to_gamma(t.accent_text, hover).lerp_to_gamma(t.pressed, press);
+                            ui.painter().rect_filled(r, 4.0, fill);
                             let rtl = crate::rtl::on();
                             let icon_x = if share_text { crate::rtl::lead_x(rtl, r, 14.0) } else { r.center().x };
                             icons::paint(
@@ -264,9 +273,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 let _ = app.run("view.commentsPane", json!({}));
                             }
                         });
-                        ui.add_space(6.0);
-                        // Command Search sits immediately to the left of Comments.
-                        crate::chrome::search_box(app, ui, 22.0, search_w);
+                        if chrome_in_ribbon {
+                            ui.add_space(6.0);
+                            // Command Search sits immediately to the left of Comments.
+                            crate::chrome::search_box(app, ui, 22.0, search_w);
+                        }
                         ui.add_space(8.0);
                         // The tabs fill the room left of the cluster, from the side reading starts from.
                         // (By language: this row sits in the far-side cluster's layout, which fills from the other end.)

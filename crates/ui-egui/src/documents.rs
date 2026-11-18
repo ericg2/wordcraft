@@ -334,7 +334,8 @@ mod tests {
         assert_eq!(a.session.document_id(), first);
         assert_eq!(text(a), "First draft");
         assert_eq!(a.session.documents().len(), 2);
-        assert!(a.sent_title.starts_with("Document1"), "{}", a.sent_title);
+        // The unsaved marker leads the name in the window title.
+        assert!(a.sent_title.starts_with("• Document1"), "{}", a.sent_title);
     }
 
     /// Close with two documents open asks about the shown one's changes; after Don't Save the

@@ -41,7 +41,8 @@ pub(crate) mod arrange;
 
 /// The window title for a document called `name`.
 pub(crate) fn title(name: &str, dirty: bool) -> String {
-    format!("{name}{} - WordCraft", if dirty { " •" } else { "" })
+    // The unsaved marker leads the name, so it stays put when a long title is truncated.
+    format!("{} {name} - WordCraft", if dirty { "•" } else { "" }).trim_start().to_string()
 }
 
 /// An open window.

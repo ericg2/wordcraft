@@ -33,8 +33,8 @@ fn qat_button(ui: &mut Ui, app: &mut WordApp, icon: &str, tip: &str, id: &str, e
     let t = Tokens::get(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
     let resp = ui.interact(r, qat_button_id(id), Sense::click());
-    if resp.hovered() && enabled {
-        ui.painter().rect_filled(r, 4.0, t.hover);
+    if enabled {
+        crate::widgets::animated_bg(ui, r, &resp);
     }
     let c = if enabled { t.icon } else { t.text_disabled };
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(16.0, 16.0)), icon, c, if enabled { t.accent } else { c });
@@ -573,7 +573,10 @@ pub(crate) fn autosave_toggle(app: &mut WordApp, ui: &mut Ui) {
 pub(crate) fn account_button(app: &mut WordApp, ui: &mut Ui, size: f32) {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-    ui.painter().circle_filled(r.center(), size / 2.0 - 1.0, t.accent);
+    let hover = ui.ctx().animate_bool_responsive(resp.id.with("hover"), resp.hovered());
+    let press = ui.ctx().animate_bool_with_time(resp.id.with("press"), resp.is_pointer_button_down_on(), ui.style().animation_time.min(0.06));
+    let fill = t.accent.lerp_to_gamma(t.accent_text, hover).lerp_to_gamma(t.pressed, press);
+    ui.painter().circle_filled(r.center(), size / 2.0 - 1.0, fill);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Account")));
     let initials: String = app.session.user_initials().chars().take(2).collect();
     ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
