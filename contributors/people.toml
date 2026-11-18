@@ -191,6 +191,9 @@ display_name = "OtorO"
 real_name = "Oliwer Urbaniak"
 sync_github_name = true
 
+[people.Bitslay]
+real_name = "Asef Zaman Dian"
+
 [people.TobyWu666]
 display_name = "tobywu"
 

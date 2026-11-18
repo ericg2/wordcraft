@@ -1404,8 +1404,9 @@ fn backstage_close_asks_then_closes() {
     );
     h.run_steps(4);
     let export = h.get_by_label("Export").rect().min.y;
-    assert!(h.get_by_label("Close").rect().min.y > export, "Close comes after Export");
-    h.get_by_label("Close").click();
+    let close = h.query_all_by_label("Close").find(|n| n.rect().min.y > export).expect("Close on side menu");
+    assert!(close.rect().min.y > export, "Close comes after Export");
+    close.click();
     h.run_steps(4);
     assert!(matches!(h.state().dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })), "unsaved changes ask first");
     assert!(h.state().has_document());
@@ -1415,7 +1416,7 @@ fn backstage_close_asks_then_closes() {
     assert!(h.state().has_document(), "Cancel keeps the document open");
     assert!(h.state().ui.backstage && h.state().ui.backstage_page == "info", "Cancel leaves the Backstage as it was");
 
-    h.get_by_label("Close").click();
+    h.query_all_by_label("Close").find(|n| n.rect().min.y > export).expect("Close on side menu").click();
     h.run_steps(4);
     h.state_mut().run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
     assert!(!h.state().has_document() && !h.state().quit_requested, "Don't Save closes the document, not the window (#1712)");
@@ -1435,7 +1436,7 @@ fn backstage_close_on_a_clean_document_closes_at_once() {
         a,
     );
     h.run_steps(4);
-    h.get_by_label("Close").click();
+    h.query_all_by_label("Close").find(|n| n.rect().min.y > 50.0).expect("Close on side menu").click();
     h.run_steps(1);
     assert!(h.state().dialog.is_none(), "no prompt");
     assert!(!h.state().has_document() && !h.state().quit_requested);
@@ -1628,6 +1629,39 @@ fn about_stays_at_the_bottom_of_a_side_menu_that_fits() {
         let bottom = 900.0 - 8.0 - 12.0;
         assert!((about.max.y - bottom).abs() < 0.5, "{language}, mac {mac}: About sits at the bottom of the menu: {about:?}");
     }
+}
+
+/// #4311: In RTL, backstage window controls are placed on the left side and do not overlap the right-aligned sidebar/back button.
+#[test]
+fn backstage_window_controls_mirrored_in_rtl() {
+    let arabic = crate::i18n::fixture_lang("ar", "");
+    crate::i18n::set_current(arabic);
+    let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+    a.ui.backstage = true;
+    a.ui.backstage_page = "home".into();
+    let mut h = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(1440.0, 900.0))
+        .with_context_setup(|ctx| ctx.set_fonts(crate::theme::font_definitions(false, false)))
+        .build_ui_state(
+            move |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                crate::i18n::set_current(arabic);
+                crate::rtl::sync(&ctx);
+                super::show(app, ui);
+            },
+            a,
+        );
+    h.run_steps(4);
+    let close = h.ctx.read_response(crate::chrome::window_close_button_id());
+    let minimize = h.ctx.read_response(crate::chrome::window_minimize_button_id());
+    crate::i18n::set_current(crate::i18n::Lang::EN);
+    assert!(close.is_some(), "Close button exists in backstage");
+    assert!(minimize.is_some(), "Minimize button exists in backstage");
+    let close_rect = close.unwrap().rect;
+    let min_rect = minimize.unwrap().rect;
+    assert!(close_rect.min.x < 100.0, "Close button must be at the left side in RTL, got {:?}", close_rect);
+    assert!(min_rect.min.x > close_rect.min.x, "In RTL, Close is at the left outer edge and Minimize is towards the inside");
 }
 
 /// Recursively collects bounding rectangles and text entries from egui shapes.
